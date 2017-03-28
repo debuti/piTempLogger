@@ -3,7 +3,7 @@
 #  Author: 
 __author__ = '<a href="mailto:debuti@gmail.com">Borja Garcia</a>'
 # Program: 
-__program__ = 'tempLogger'
+__program__ = 'piTempLogger'
 # Package:
 __package__ = ''
 # Descrip: 
@@ -15,7 +15,7 @@ __date__ = '20170328'
 # License: This script doesn't require any license since it's not intended to be redistributed.
 #          In such case, unless stated otherwise, the purpose of the author is to follow GPLv3.
 # History: 
-#          0.0.0 (YYYYMMDD)
+#          0.0.0 (20170328)
 #            -Initial release
 ###############################################################################################
 
@@ -30,6 +30,10 @@ import inspect
 import ConfigParser
 import glob
 import traceback
+import fcntl, socket, struct
+from gpiozero import CPUTemperature
+import requests
+
 
 # Parameters, Globals n' Constants
 KIBI = 1024
@@ -61,8 +65,6 @@ sys.path.insert(0, libPath)
 for infile in glob.glob(os.path.join(libPath, '*.*')):
     sys.path.insert(0, infile)
     
-#import thepyutilities.shellutils as shellutils
-
 
 
 # Error declaration
@@ -123,75 +125,12 @@ def checkInput():
     '''This function is for treat the user command line parameters.
     '''
 
-    #####THIS SECTION IS A EXAMPLE#####
-    # Create instance of OptionParser Module, included in Standard Library
-    p = optparse.OptionParser(description=__description__,
-                              prog=__program__,
-                              version=__version__,
-                              usage='''%prog [options]''') 
-    # Define the options. Do not use -h nor -v, the are reserved to help and version automaticly
-    p.add_option('--old', '-o', action="store", type="string", dest="old_regexp", help='Regular expression to search for')
-    p.add_option('--new', '-n', action="store", type="string", dest="new_string", help='New text to replace it')
-    p.add_option('--preview','-p', action="store_true", dest="do_preview", help='Ask to replace the coincidence before doing it')
-    p.add_option('--file','-f', action="store", type="string", dest="filename", help='The input/output file')
-
-    # Parse the commandline
-    options, arguments = p.parse_args()
-
-    # Decide what to do
-    if options.old_regexp is None or options.new_string is None or options.filename is None :
-        p.print_help()
-        sys.exit(-1)
-    else:
-        old_regexp = options.old_regexp
-        new_string = options.new_string
-        do_preview = options.do_preview
-        filename = options.filename
-        return [old_regexp, new_string, do_preview, filename]
-
-    #####/THIS SECTION IS A EXAMPLE#####
-
-
 # Helper functions
 def areToolsInstalled():
     '''
     '''
-    #####THIS SECTION IS A EXAMPLE#####
     result = True
-    softwareNeeded = [{'sw':"ecdhoprint-codegen", 
-                       'message':"""Tool needed not found. Install it by typing: 
- sudo apt-get install ffmpeg libboost-all-dev libtag1-dev zlib1g-dev git eyed3
- git clone -b release-4.12 git://github.com/echonest/echoprint-codegen.git
- cd echoprint-codegen/
- cd src/
- make
- cd ..
- cd ..
- mv echoprint-codegen /usr/local/.
- ln -s /usr/local/echoprint-codegen/echoprint-codegen /usr/bin/echoprint-codegen"""},
-                      {'sw':"eyes3", 'message':"""Tool needed not found. Install it by typing: 
- sudo apt-get install eyed3"""},
-]
-    for software in softwareNeeded:
-        if not shellutils.executableExists(software['sw']):
-            print software['message']
-            result = False
-            
     return result
-    #####/THIS SECTION IS A EXAMPLE#####
-
-def createWorkDir():
-    '''This function is for creating the working directory, if its not already
-    '''
-    #####THIS SECTION IS A EXAMPLE#####
-    if not os.path.isdir(APP_PATH):
-        os.mkdir(APP_PATH)
-    if not os.path.isdir(LOG_PATH):
-        os.mkdir(LOG_PATH)
-    if not os.path.isfile(LOG_FILENAME):
-        f = open(LOG_FILENAME, "w")
-        f.close()
-    #####/THIS SECTION IS A EXAMPLE#####
 
 def readConfig(propertiesPath):
     '''This procedure returns the program properties file
@@ -207,21 +146,28 @@ def saveConfig(config, propertiesPath):
     config.write(configfile)
     configfile.close()
 
+def getHwAddr(ifname):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    info = fcntl.ioctl(s.fileno(), 0x8927,  struct.pack('256s', ifname[:15]))
+    return ':'.join(['%02x' % ord(char) for char in info[18:24]])
+
+
 # Main function
 def core():
     '''This is the core, all program logic is performed here
     '''
-    createWorkDir()
     properties = readConfig(propertiesPath)
 
-#####THIS SECTION IS A EXAMPLE#####
-    properties.get('General', 'foo')
-    properties.set('General', 'foo', "hola")
-#####/THIS SECTION IS A EXAMPLE#####
-
-    # DO STUFF HERE
+    dweetUrlBase = properties.get('Dweet.io', 'urlBase')
+    dweetUrl = "/".join((dweetUrlBase, "-".join((getHwAddr('eth0'),"cputemp"))));
     
-    saveConfig(properties, propertiesPath)
+    cputemp = CPUTemperature()
+    
+    payload = {'date':time.strftime("%Y-%m-%d %H:%M:%S"), 'cputemp':cputemp.temperature}
+    r = requests.post(dweetUrl, data = payload)
+
+    if r.status_code==200:
+        print "Dweet ", payload, " to ", dweetUrl, " succedded";
     
 def main():
     '''This is the main procedure, is detached to provide compatibility with the updater
